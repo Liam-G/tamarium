@@ -8,6 +8,22 @@
         {"id": "reference", "defines": [], "expect": {"executable": "verified", "message_authentication": "verified"}},
         {"id": "omit-check", "defines": ["OMIT_CHECK"], "expect": {"executable": "verified", "message_authentication": "falsified"}}
       ]
+    },
+    {
+      "id": "synthetic-replay",
+      "path": "protocols/synthetic/replay.spthy",
+      "cases": [
+        {"id": "reference", "defines": [], "expect": {"executable": "verified", "response_origin": "verified", "challenge_freshness": "verified", "no_cross_challenge_replay": "verified"}},
+        {"id": "omit-freshness", "defines": ["OMIT_FRESHNESS"], "expect": {"executable": "verified", "response_origin": "verified", "challenge_freshness": "falsified", "no_cross_challenge_replay": "falsified"}}
+      ]
+    },
+    {
+      "id": "synthetic-secrecy",
+      "path": "protocols/synthetic/secrecy.spthy",
+      "cases": [
+        {"id": "reference", "defines": [], "expect": {"executable": "verified", "recipient_binding": "verified", "secret_stays_secret": "verified"}},
+        {"id": "omit-recipient-check", "defines": ["OMIT_RECIPIENT_CHECK"], "expect": {"executable": "verified", "recipient_binding": "falsified", "secret_stays_secret": "falsified"}}
+      ]
     }
   ]
 }

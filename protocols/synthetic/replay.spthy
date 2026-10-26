@@ -1,0 +1,49 @@
+theory Synthetic_Challenge_Replay
+begin
+
+// Honest signing key, public network, unbounded fresh challenges. No key reveal.
+// The mutant retains signature verification but accepts a reply to an old nonce.
+builtins: signing
+
+rule Setup:
+  [ Fr(~key) ] --> [ !Signer(~key), Out(pk(~key)) ]
+
+rule Challenge:
+  [ !Signer(key), Fr(~nonce) ]
+  --[ Challenged(pk(key),~nonce) ]->
+  [ Waiting(pk(key),~nonce), Out(~nonce) ]
+
+rule Reply:
+  [ !Signer(key), In(nonce) ]
+  --[ Replied(pk(key),nonce) ]->
+  [ Out(<pk(key),nonce,sign(<'reply',nonce>,key)>) ]
+
+#ifdef OMIT_FRESHNESS
+rule Accept:
+  [ Waiting(key,nonce), In(<key,claimed,signature>) ]
+  --[ Eq(verify(signature,<'reply',claimed>,key),true), Accepted(key,nonce,claimed) ]-> []
+#else
+rule Accept:
+  [ Waiting(key,nonce), In(<key,claimed,signature>) ]
+  --[ Eq(verify(signature,<'reply',claimed>,key),true), Eq(nonce,claimed),
+      Accepted(key,nonce,claimed) ]-> []
+#endif
+
+restriction Equality:
+  "All x y #i. Eq(x,y)@i ==> x = y"
+
+lemma executable: exists-trace
+  "Ex key nonce claimed #i. Accepted(key,nonce,claimed)@i"
+
+lemma response_origin:
+  "All key nonce claimed #i. Accepted(key,nonce,claimed)@i ==>
+    (Ex #j. Replied(key,claimed)@j & j < i)"
+
+lemma challenge_freshness:
+  "All key nonce claimed #i. Accepted(key,nonce,claimed)@i ==> nonce = claimed"
+
+lemma no_cross_challenge_replay:
+  "All key first second claimed #i #j.
+    Accepted(key,first,claimed)@i & Accepted(key,second,claimed)@j ==> first = second"
+
+end

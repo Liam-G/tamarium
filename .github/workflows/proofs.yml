@@ -1,4 +1,4 @@
-name: Synthetic proof contracts
+name: Proof contracts and project workflow
 on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
@@ -13,5 +13,26 @@ jobs:
           python-version: '3.12'
       - run: python3 tools/bootstrap.py
       - run: python3 -m unittest discover -s tests -v
-      - run: python3 proofctl.py prove --jobs 1 --timeout 60
+      - run: python3 proofctl.py prove --jobs 2 --timeout 60 --output results/ci-proofs
       - run: python3 proofctl.py audit --jobs 1 --timeout 60
+      - run: python3 proofctl.py verify-evidence results/ci-proofs/report.json
+      - name: Export CI test results
+        if: always() && hashFiles('results/ci-proofs/report.json') != ''
+        run: python3 proofctl.py junit results/ci-proofs/report.json --output results/junit.xml
+      - name: Exercise separate project
+        run: |
+          python3 proofctl.py init results/example-project --example replay
+          python3 proofctl.py prove --project results/example-project --jobs 1 --timeout 60 --output results/external-proofs
+          python3 proofctl.py verify-evidence results/external-proofs/report.json
+      - name: Check report comparison
+        run: |
+          python3 proofctl.py prove --jobs 2 --timeout 60 --output results/ci-repeat
+          python3 proofctl.py compare results/ci-proofs/report.json results/ci-repeat/report.json --output results/comparison.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: synthetic-proof-evidence
+          path: |
+            results/ci-proofs/
+            results/junit.xml
+            results/comparison.json

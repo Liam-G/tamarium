@@ -10,6 +10,26 @@
           "must_break": ["message_authentication"]
         }
       ]
+    },
+    "synthetic-replay": {
+      "witnesses": ["executable"],
+      "experiments": [
+        {
+          "id": "remove-nonce-binding",
+          "remove_action": {"rule": "Accept", "predicate": "Eq", "exact": "Eq(nonce,claimed)"},
+          "must_break": ["challenge_freshness", "no_cross_challenge_replay"]
+        }
+      ]
+    },
+    "synthetic-secrecy": {
+      "witnesses": ["executable"],
+      "experiments": [
+        {
+          "id": "remove-recipient-binding",
+          "remove_action": {"rule": "SendSecret", "predicate": "Eq", "exact": "Eq(candidate,pk(key))"},
+          "must_break": ["recipient_binding", "secret_stays_secret"]
+        }
+      ]
     }
   }
 }

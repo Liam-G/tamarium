@@ -247,7 +247,7 @@ def audit_suite(models: list[dict], args, env: dict[str, str], versions: dict[st
         raise ValueError("Some selected models have no assurance policy yet")
     if not selected:
         raise ValueError("No models have assurance policies")
-    directory = (args.output or ROOT / "results" / ("audit-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ"))).resolve()
+    directory = (args.output or proofctl.ROOT / "results" / ("audit-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ"))).resolve()
     directory.mkdir(parents=True, exist_ok=False)
     metadata = proofctl.snapshot_metadata(directory)
     results = []

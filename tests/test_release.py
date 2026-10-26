@@ -18,7 +18,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_metadata_snapshot_contains_exactly_the_generic_inputs(self):
         expected = {"suite.json", "assurance.json", "toolchain.json", "proofctl.py",
-                    "assurance.py", "tamarin_text.py"}
+                    "assurance.py", "tamarin_text.py", "workflows.py"}
         self.assertEqual(set(proofctl.INPUT_NAMES), expected)
         with tempfile.TemporaryDirectory() as directory:
             hashes = proofctl.snapshot_metadata(Path(directory))

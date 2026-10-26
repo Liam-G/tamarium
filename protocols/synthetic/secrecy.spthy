@@ -1,0 +1,39 @@
+theory Synthetic_Recipient_Binding
+begin
+
+// An ideal public-key channel with an uncompromised recipient. The sender
+// must bind the supplied encryption key to its configured recipient's key.
+builtins: asymmetric-encryption
+
+rule Setup:
+  [ Fr(~key) ] --> [ !Recipient(~key), Out(pk(~key)) ]
+
+#ifdef OMIT_RECIPIENT_CHECK
+rule SendSecret:
+  [ !Recipient(key), Fr(~secret), In(candidate) ]
+  --[ Secret(~secret), SentTo(pk(key),candidate) ]->
+  [ Out(aenc(~secret,candidate)) ]
+#else
+rule SendSecret:
+  [ !Recipient(key), Fr(~secret), In(candidate) ]
+  --[ Eq(candidate,pk(key)), Secret(~secret), SentTo(pk(key),candidate) ]->
+  [ Out(aenc(~secret,candidate)) ]
+#endif
+
+rule ReceiveSecret:
+  [ !Recipient(key), In(aenc(secret,pk(key))) ]
+  --[ Received(secret) ]-> []
+
+restriction Equality:
+  "All x y #i. Eq(x,y)@i ==> x = y"
+
+lemma executable: exists-trace
+  "Ex secret #i #j. Secret(secret)@i & Received(secret)@j & i < j"
+
+lemma recipient_binding:
+  "All intended actual #i. SentTo(intended,actual)@i ==> intended = actual"
+
+lemma secret_stays_secret:
+  "All secret #i. Secret(secret)@i ==> not (Ex #j. K(secret)@j)"
+
+end

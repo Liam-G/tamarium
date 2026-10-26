@@ -19,12 +19,14 @@ import time
 
 from tamarin_text import code_mask
 
-ROOT = Path(__file__).resolve().parent
+CODE_ROOT = Path(__file__).resolve().parent
+ROOT = CODE_ROOT
 INPUT_NAMES = ("suite.json", "assurance.json", "toolchain.json",
-               "proofctl.py", "assurance.py", "tamarin_text.py")
+               "proofctl.py", "assurance.py", "tamarin_text.py", "workflows.py")
 # Keep the runner and configuration bytes seen by this interpreter. Later edits
 # must not be recorded as though they were the code that executed a proof.
 RUNTIME_INPUTS = {name: (ROOT / name).read_bytes() for name in INPUT_NAMES if (ROOT / name).exists()}
+RUNTIME_PATHS = {name: ROOT / name for name in RUNTIME_INPUTS}
 SUMMARY = re.compile(r"^\s+([A-Za-z_][\w]*)(?:\s+\[.*?\])?\s+\((all-traces|exists-trace)\):\s+(verified|falsified|analysis incomplete)\b", re.MULTILINE)
 LEMMA = re.compile(r"^lemma\s+([A-Za-z_]\w*)", re.MULTILINE)
 LEMMA_DECLARATION = re.compile(r"^lemma\s+([A-Za-z_]\w*)(?:\s*\[[^\]]*\])?\s*:\s*(exists-trace)?", re.MULTILINE)
@@ -46,9 +48,24 @@ def validate_reference(case: dict, source: str) -> None:
         raise ValueError("Reference cases require no defines and verified all-traces obligations")
 
 
-def load_manifest(path: Path = ROOT / "suite.json") -> list[dict]:
+def configure_project(project: Path) -> None:
+    """Keep project configuration separate from the executing runner's bytes."""
+    global ROOT, RUNTIME_INPUTS, RUNTIME_PATHS
+    ROOT = project.resolve()
+    RUNTIME_PATHS = {name: (ROOT if name.endswith(".json") else CODE_ROOT) / name
+                     for name in INPUT_NAMES}
+    # An assurance policy is optional for projects that only run contracts.
+    RUNTIME_INPUTS = {name: path.read_bytes() for name, path in RUNTIME_PATHS.items()
+                      if path.is_file()}
+    for required in ("suite.json", "toolchain.json"):
+        if required not in RUNTIME_INPUTS:
+            raise ValueError(f"Project is missing {required}: {ROOT}")
+
+
+def load_manifest(path: Path | None = None) -> list[dict]:
+    path = path or ROOT / "suite.json"
     data = json.loads(RUNTIME_INPUTS["suite.json"] if path == ROOT / "suite.json" else path.read_bytes())
-    if data.get("schema") != 1 or not isinstance(data.get("models"), list):
+    if data.get("schema") != 1 or not isinstance(data.get("models"), list) or not data["models"]:
         raise ValueError("Unsupported suite manifest")
     ids: set[str] = set()
     for model in data["models"]:
@@ -59,7 +76,10 @@ def load_manifest(path: Path = ROOT / "suite.json") -> list[dict]:
         source = (ROOT / model["path"]).resolve()
         if not source.is_relative_to(ROOT / "protocols") or not source.is_file():
             raise ValueError(f"Invalid model path: {model['path']}")
-        lemmas = set(LEMMA.findall(code_mask(source.read_text(), strings=True)))
+        declarations = LEMMA.findall(code_mask(source.read_text(), strings=True))
+        lemmas = set(declarations)
+        if len(declarations) != len(lemmas):
+            raise ValueError(f"Duplicate lemma names: {name}")
         if not lemmas or "executable" not in lemmas or not model["cases"]:
             raise ValueError(f"Model requires claims, an executable witness and cases: {name}")
         variants: set[str] = set()
@@ -106,6 +126,23 @@ def parse_quantifiers(output: str) -> dict[str, str]:
             SUMMARY.findall(output.rsplit("summary of summaries:", 1)[1])}
 
 
+def lemma_fingerprints(source: str) -> dict[str, str]:
+    """Retain formula bytes so unchanged names/statuses cannot hide edits."""
+    comments_masked = code_mask(source)
+    result = {}
+    declarations = list(LEMMA_DECLARATION.finditer(code_mask(source, strings=True)))
+    for index, declaration in enumerate(declarations):
+        finish = declarations[index + 1].start() if index + 1 < len(declarations) else len(source)
+        # The declaration regex's trailing whitespace can span a masked formula.
+        # Start after the header colon rather than after that whitespace.
+        start = comments_masked.index(":", declaration.start(), declaration.end()) + 1
+        formula = re.search(r'"(?:\\.|[^"\\])*"', comments_masked[start:finish], re.DOTALL)
+        if formula is None:
+            raise ValueError(f"Missing formula: {declaration[1]}")
+        result[declaration[1]] = hashlib.sha256(formula.group().encode()).hexdigest()
+    return result
+
+
 def graph_matches_lemma(label: str, lemma: str) -> bool:
     # Induction exports append the proof-case name directly to the lemma name.
     # Exact boundaries avoid confusing, e.g., auth and auth_injective.
@@ -138,8 +175,13 @@ def assess(output: str, returncode: int, expected: dict[str, str], timed_out: bo
 
 def tool_env() -> dict[str, str]:
     env = dict(os.environ)
-    env["PATH"] = os.pathsep.join([str(ROOT / ".tools/bin"), str(ROOT / ".tools/maude"), env.get("PATH", "")])
-    env["MAUDE_LIB"] = str(ROOT / ".tools/maude")
+    locations = list(dict.fromkeys([ROOT, CODE_ROOT]))
+    env["PATH"] = os.pathsep.join([str(base / folder) for base in locations
+                                     for folder in (".tools/bin", ".tools/maude")]
+                                    + [env.get("PATH", "")])
+    binary = shutil.which("maude", path=env["PATH"])
+    if binary and (Path(binary).resolve().parent / "prelude.maude").is_file():
+        env["MAUDE_LIB"] = str(Path(binary).resolve().parent)
     return env
 
 
@@ -278,7 +320,7 @@ def run_case(model: dict, case: dict, directory: Path, timeout: int, env: dict[s
         if not original.exists() or hashlib.sha256(original.read_bytes()).hexdigest() != digest:
             errors.append(f"model source changed while the proof was running: {relative}")
     for name, digest in metadata_hashes.items():
-        path = ROOT / name
+        path = RUNTIME_PATHS[name]
         if not path.exists() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
             errors.append(f"runner/configuration changed during this invocation: {name}")
     trace_count = 0
@@ -312,6 +354,7 @@ def run_case(model: dict, case: dict, directory: Path, timeout: int, env: dict[s
             "comparison": "contract" if compare_expectations else "observation",
             "actual": actual, "quantifiers": quantifiers, "errors": errors,
             "source_sha256": hashlib.sha256(source_bytes).hexdigest(), "trace_count": trace_count,
+            "lemma_sha256": lemma_fingerprints(source_bytes.decode()),
             "source_inputs": source_hashes, "metadata_inputs": metadata_hashes,
             "artifact_sha256": artifact_hashes,
             "defines": case["defines"], "command": command,
@@ -354,7 +397,14 @@ These are symbolic model results. Timeouts, missing lemmas and warnings fail the
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in {"init", "compare", "junit", "verify-evidence"}:
+        from workflows import main as workflow_main
+        return workflow_main(argv)
+    parser = argparse.ArgumentParser(description=__doc__, epilog=(
+        "Project/report commands: init DIRECTORY [--example message|replay|secrecy], "
+        "compare BASELINE CURRENT, junit REPORT --output FILE, verify-evidence REPORT. "
+        "Run each command with --help for details."))
     parser.add_argument("command", choices=("list", "validate", "doctor", "prove", "audit"))
     parser.add_argument("--model", action="append", default=[], help="Repeat to select models; default all")
     parser.add_argument("--variant", choices=("all", "reference", "negative"), default="all",
@@ -362,8 +412,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeout", type=int, default=90, help="Seconds per theory variant")
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--output", type=Path, help="New output directory (never reuse one)")
+    parser.add_argument("--project", type=Path, default=CODE_ROOT, help="Project containing suite.json and protocols/")
     args = parser.parse_args(argv)
     try:
+        configure_project(args.project)
         if args.timeout <= 0 or args.jobs <= 0:
             raise ValueError("timeout and jobs must be positive")
         models = load_manifest()
@@ -382,6 +434,8 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(versions, indent=2))
             return 0
         if args.command == "audit":
+            if "assurance.json" not in RUNTIME_INPUTS:
+                raise ValueError("Project has no assurance.json mutation policy")
             from assurance import audit_suite
             return audit_suite(models, args, env, versions)
         directory = (args.output or ROOT / "results" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")).resolve()
