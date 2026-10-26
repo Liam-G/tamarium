@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "models": [
+    {
+      "id": "synthetic-message",
+      "path": "protocols/synthetic/message.spthy",
+      "cases": [
+        {"id": "reference", "defines": [], "expect": {"executable": "verified", "message_authentication": "verified"}},
+        {"id": "omit-check", "defines": ["OMIT_CHECK"], "expect": {"executable": "verified", "message_authentication": "falsified"}}
+      ]
+    }
+  ]
+}

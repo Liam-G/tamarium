@@ -1,0 +1,35 @@
+theory Synthetic_Message_Authentication
+begin
+
+// Teaching example: an attacker-controlled message requires a valid signature.
+builtins: signing
+
+rule Setup:
+  [ Fr(~key) ] --> [ !Signer(~key), Out(pk(~key)) ]
+
+rule Send:
+  [ !Signer(key), Fr(~message) ]
+  --[ Sent(pk(key),~message) ]->
+  [ Out(<~message,sign(~message,key)>) ]
+
+#ifdef OMIT_CHECK
+rule Receive:
+  [ !Signer(key), In(<message,signature>) ]
+  --[ Accepted(pk(key),message) ]-> []
+#else
+rule Receive:
+  [ !Signer(key), In(<message,signature>) ]
+  --[ Eq(verify(signature,message,pk(key)),true), Accepted(pk(key),message) ]-> []
+#endif
+
+restriction Equality:
+  "All x y #i. Eq(x,y)@i ==> x = y"
+
+lemma executable: exists-trace
+  "Ex key message #i. Accepted(key,message)@i"
+
+lemma message_authentication:
+  "All key message #i. Accepted(key,message)@i ==>
+    (Ex #j. Sent(key,message)@j & j < i)"
+
+end

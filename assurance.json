@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "models": {
+    "synthetic-message": {
+      "witnesses": ["executable"],
+      "experiments": [
+        {
+          "id": "remove-signature-check",
+          "remove_action": {"rule": "Receive", "predicate": "Eq", "contains_function": "verify"},
+          "must_break": ["message_authentication"]
+        }
+      ]
+    }
+  }
+}
