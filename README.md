@@ -42,8 +42,8 @@ paths, command lines, model contents and trace values; review generated evidence
 before sharing it separately.
 
 The CI workflow bootstraps the pinned tools, runs runner tests, proves the
-synthetic contracts and checks the mutation experiment. Its hosted execution
-has not been validated as part of this local distribution.
+synthetic contracts and checks the mutation experiment. The initial hosted
+run [passed](https://github.com/Liam-G/tamarium/actions/runs/40300957301).
 
 Local validation covers 27 unit tests, both synthetic proof contracts, and the
 independent signature-check mutation. Reproduce these checks with the commands
